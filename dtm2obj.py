@@ -24,6 +24,7 @@ LAB_y0 = 0
 LAB_y1 = 10
 LAB_dy = 1
 LAB_minThickness = 1
+LAB_vertExageration = 1.0 #1 = no vert exag.
 
 #Desired range
 DTM_x0 = 539784
@@ -110,11 +111,25 @@ LAB_xSpace = np.linspace(LAB_x0,LAB_x1,meshCols)
 LAB_ySpace = np.linspace(LAB_y0,LAB_y1,meshRows)
 DTM_xSpace = np.linspace(DTM_x0,DTM_x1,meshCols)
 DTM_ySpace = np.linspace(DTM_y0,DTM_y1,meshRows)
+DTM_zSpace = np.empty(len(DTM_xSpace)*len(DTM_ySpace))
 
 #Load and interpolate raster onto sub-region mesh
-#Write out vertex and faces to the outfile
-#Identify and export side and bottom face.
+#for each DTM_y, identify the Raster row above and below.
+# pull these raster rows into two lists (or Nx2 array)
+# for each DTM_x, identify the Raster column left and right
+#  make a weighted average of the four neighbors.
+#  if either row or column are -1 or N+1, just use two cells
+
+#Reduce Z values to Lab coordinates
+DTM_zSpace -= np.min(DTM_zSpace)
+DTM_zSpace *= LAB_vertExageration*(LAB_x1-LAB_x0)/(DTM_x1-DTM_x0)
+DTM_zSpace += Lab_minThickness
 
 
+#print faces to the outfile
 
+#Write out vertex to the outfile
+#define and print vertices with faceDefine
+
+#Identify and export side and bottom face. CCW
 
