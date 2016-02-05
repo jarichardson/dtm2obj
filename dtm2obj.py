@@ -2,6 +2,7 @@
 import os, sys, time, gdal
 import numpy as np
 from gdalconst import *
+import matplotlib.pyplot as plt
 
 #dtm2obj interpolates a topograpgy mesh using a Digital Terrain Model (DTM)
 #        The mesh is output as an ascii obj, that can be used for 3D
@@ -19,18 +20,49 @@ meshFile = 'momotumbo_20m.obj'
 #dx, x resolution; dy, y resolution
 LAB_x0 = 0
 LAB_x1 = 10
-LAB_dx = 1
+LAB_dx = 0.1
 LAB_y0 = 0
 LAB_y1 = 10
-LAB_dy = 1
-LAB_minThickness = 1
-LAB_vertExageration = 1.0 #1 = no vert exag.
+LAB_dy = 0.1
+LAB_minThickness = 0.5
+LAB_vertExageration = 2.0 #1 = no vert exag.
 
 #Desired range
-DTM_x0 = 539784
-DTM_x1 = 560683
+DTM_x0 =  543777
+DTM_x1 =  560000
 DTM_y0 = 1363777
-DTM_y1 = 1381556
+DTM_y1 = 1380000
+
+
+def faceDefine(n,rowct,colct): #find vertices for faces
+	'''
+	Face Define Function
+	Takes the square number (ij+j), 
+		        number of rows (i), and
+		        number of columns (j).
+	Pairs the square up to four numbered vertices and
+	splits into two CCW triangles.
+	Returns obj style face strings.
+	'''
+	#face 0: f 2 (col+1) 1
+	#face 1: f 2 (col+2) (col+1)
+	
+	#top left corner
+	#n starts with zero
+	#vertices start with one
+	scolct = colct-1
+	n=n+1
+	
+	srow = int((n-1)/scolct)
+	v1 = n+srow #top left vertex of square
+	v2 = v1 + 1
+	v3 = v1 + colct
+	v4 = v3 + 1
+	
+	tri1 = 'f '+str(v2)+' '+str(v3)+' '+str(v1)
+	tri2 = 'f '+str(v2)+' '+str(v4)+' '+str(v3)
+	
+	return  tri1, tri2
 
 #Check that DTM region and LAB region are valid
 if((LAB_x1<=LAB_x0) or (LAB_y1<=LAB_y0)):
@@ -69,8 +101,11 @@ yOrigin = transform[3]
 pixelWidth = transform[1]
 pixelHeight = transform[5]
 
-print ('\nIncoming Raster Range (W/E/S/N):\n  -R%0.2f/%0.2f/%0.2f/%0.2f\n' % (xOrigin,
-	(xOrigin + (cols*pixelWidth)),(yOrigin + (rows*pixelHeight)),yOrigin) )
+print ('\nLoaded Geotiff, "%s"' % dtmFile)
+print ' Raster Statistics:'
+print '  Rows: ',rows,'\tCols: ',cols,'\tBands: ',bands
+print '  Upper Left Corner: (',xOrigin,',',yOrigin,')'
+print '  Pixel Dimensions: (',pixelWidth,',',pixelHeight,')\n'
 
 #Check that output region lay within the raster coverage
 if(DTM_x0 < xOrigin):
@@ -109,27 +144,127 @@ if((LAB_x0+((meshCols-1)*LAB_dx)) != LAB_x1):
 
 LAB_xSpace = np.linspace(LAB_x0,LAB_x1,meshCols)
 LAB_ySpace = np.linspace(LAB_y0,LAB_y1,meshRows)
+LABXmg,LABYmg = np.meshgrid(LAB_xSpace,LAB_ySpace) #mesh with y rows, x cols
 DTM_xSpace = np.linspace(DTM_x0,DTM_x1,meshCols)
 DTM_ySpace = np.linspace(DTM_y0,DTM_y1,meshRows)
-DTM_zSpace = np.empty(len(DTM_xSpace)*len(DTM_ySpace))
+DTMXmg,DTMYmg = np.meshgrid(DTM_xSpace,DTM_ySpace) #mesh with y rows, x cols
+Zmg = np.empty(np.shape(LABXmg))
+
 
 #Load and interpolate raster onto sub-region mesh
-#for each DTM_y, identify the Raster row above and below.
-# pull these raster rows into two lists (or Nx2 array)
+
+#in advance of y for loop, figure out column numbers used in interpolation
 # for each DTM_x, identify the Raster column left and right
-#  make a weighted average of the four neighbors.
-#  if either row or column are -1 or N+1, just use two cells
+xCols    = (DTM_xSpace-xOrigin)/pixelWidth
+WColLocs = np.floor(xCols).astype(int) #Row of west-adjacent column to x loc
+EColLocs = np.ceil(xCols).astype(int)  #Row east
+xOffsets = xCols - EColLocs
+WColLocs[np.where(WColLocs<0)]       = 0      #shift so nothing is off grid
+EColLocs[np.where(EColLocs>(cols-1))] = cols-1
+
+#load elevation values
+band = gt.GetRasterBand(1)
+
+#for each DTM_y, identify the Raster row above and below.
+for yct,y in enumerate(DTM_ySpace):
+	#identify the raster row (row 0 is northmost row)
+	yRow    = (y-yOrigin)/pixelHeight
+	NRowLoc = int(np.floor(yRow)) #Row north of the current y location
+	SRowLoc = int(np.ceil(yRow))  #Row south
+	
+	#Weight average of the entire row. If N/S rows outside boundary, just
+	# use the other row with no weight.
+	if NRowLoc < 0:
+		RowData = band.ReadAsArray(0,SRowLoc,cols,1)[0]
+	elif (SRowLoc > (rows-1)):
+		RowData = band.ReadAsArray(0,NRowLoc,cols,1)[0]
+	else:
+		yOffset = yRow - NRowLoc
+		NRow = band.ReadAsArray(0,NRowLoc,cols,1)[0]
+		SRow = band.ReadAsArray(0,SRowLoc,cols,1)[0]
+		RowData = NRow*(1-yOffset) + SRow*yOffset #weighted average of two rows
+	
+	# for each DTM_x, identify the Raster column left and right
+	Zmg[yct] = RowData[WColLocs]*(1-xOffsets) + RowData[EColLocs]*(xOffsets)
+
+print "Interpolation Complete!"
 
 #Reduce Z values to Lab coordinates
-DTM_zSpace -= np.min(DTM_zSpace)
-DTM_zSpace *= LAB_vertExageration*(LAB_x1-LAB_x0)/(DTM_x1-DTM_x0)
-DTM_zSpace += Lab_minThickness
+Zmg -= np.min(Zmg)
+Zmg *= LAB_vertExageration*(LAB_x1-LAB_x0)/(DTM_x1-DTM_x0)
+Zmg += LAB_minThickness
+
+#print out vertices to mesh file
+vertarray = np.ndarray(shape=(((meshRows*meshCols)+4),4), dtype='|S6')
+vertarray[:,0] = 'v'
+vertarray[:(meshRows*meshCols),1] = LABXmg.reshape(-1)
+vertarray[:(meshRows*meshCols),2] = LABYmg.reshape(-1)
+vertarray[:(meshRows*meshCols),3] = Zmg.reshape(-1)
+np.savetxt(meshFile,vertarray, fmt='%s')
+
+#base vertices
+vertarray[-4,1], vertarray[-3,1] = LAB_x0, LAB_x0
+vertarray[-2,1], vertarray[-1,1] = LAB_x1, LAB_x1
+vertarray[-2,2], vertarray[-4,2] = LAB_y0, LAB_y0
+vertarray[-1,2], vertarray[-3,2] = LAB_y1, LAB_y1
+vertarray[-4:,3] = '0.00'
+
+with open(meshFile, 'w') as mf:
+	mf.write('#Created with gtiff2mesh_q.py, Jacob Richardson\n#\n')
+	
+	mf.write('#Vertices\n')
+	mf.write('#No. Vertices: '+str(int(meshRows*meshCols))+'\n')
+	
+	np.savetxt(mf,vertarray, fmt='%s')
+	print "Vertices saved."
 
 
-#print faces to the outfile
+	'''
+	print "Plotting."
 
-#Write out vertex to the outfile
-#define and print vertices with faceDefine
+	plt.subplot(1, 1, 1)
+	plt.pcolor(LABXmg,LABYmg,Zmg, cmap='RdBu', vmin=np.min(Zmg), vmax=np.max(Zmg))
+	plt.title('pcolor')
+	# set the limits of the plot to the limits of the data
+	plt.axis([LAB_x0, LAB_x1, LAB_y0, LAB_y1])
+	plt.colorbar()
+	plt.show()
+	'''
 
-#Identify and export side and bottom face. CCW
+	#print faces to the outfile
+	scount = int((meshCols-1)*(meshRows-1)) #square count
+	fcount = int(2*scount) #triangular face count
+	print '\nWriting ', fcount, ' Faces...'
+
+	mf.write('#\n#Faces\n')
+	mf.write('#No. Faces: '+str(fcount)+'\n#\n')
+
+	for s in range(scount): #for every square, there will be two faces
+		if (s%int(scount/10+1))==0: #user screen output
+			sys.stdout.write('\rFaces completed: '+str(100*s/scount)+'%')
+			sys.stdout.flush()
+		
+		(face1,face2) = faceDefine(s,meshRows,meshCols) #main face function
+		mf.write(str(face1)+'\n'+str(face2)+'\n') #write to obj file
+
+	sys.stdout.write('\rFaces completed: 99%. Identifying Base and Sides...\n')
+	#Write out vertex to the outfile
+	#define and print vertices with faceDefine
+
+	#Identify and export side and bottom face. CCW
+	#Base Vertices: -1 NE, -2 SE, -3 NW, -4 SW
+	#                +4     +3     +2     +1
+	vct = meshCols*meshRows
+	mf.write('f %d %d %d %d\n' % (vct+2,vct+4,vct+3,vct+1))
+	
+	#South
+	#101 -> 1, vct+1, vct+3.
+	#mf.write('f %d %d %d %d\n' % (1,vct+1,vct+3,101))
+	mf.write('f')
+	for i in range(101):
+		mf.write(' %d' % (101-i))
+	mf.write(' %d %d\n' % (vct+1,vct+3))
+
+
+
 
