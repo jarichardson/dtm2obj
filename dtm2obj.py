@@ -8,30 +8,31 @@ import matplotlib.pyplot as plt
 #        The mesh is output as an ascii obj, that can be used for 3D
 #        printing.
 
-#VARIABLES
+#VARIABLES#################################################################
+
 #IN/OUT Files
-dtmFile  = 'momotumbo_20m.tif'
-meshFile = 'momotumbo_20m.obj'
+dtmFile  = 'sanraf/Ground.flt'
+meshFile = 'hebes.obj'
 
 #LAB = the geometry of the 3D printed block
 #DTM = the geometry of the real world elevation model
 #x0, west  x coordinate; x1, east  x coordinate
 #y0, south y coordinate; y1, north y coordinate
 #dx, x resolution; dy, y resolution
-LAB_x0 = 0
-LAB_x1 = 10
-LAB_dx = 0.1
-LAB_y0 = 0
-LAB_y1 = 10
-LAB_dy = 0.1
-LAB_minThickness = 0.5
-LAB_vertExageration = 2.0 #1 = no vert exag.
 
-#Desired range
-DTM_x0 =  543777
-DTM_x1 =  560000
-DTM_y0 = 1363777
-DTM_y1 = 1380000
+LAB_Width = 10 #x-direction width. y-direction height will be proportional
+LAB_dx = 0.02
+LAB_dy = 0.02
+LAB_minThickness = 0.5
+LAB_vertExageration = 1.0 #1 = no vert exag, 1/111120 = m w/ latlong
+
+#Desired Geographic Range (Real World)
+DTM_x0 =  488900
+DTM_x1 =  491000
+DTM_y0 = 4280500
+DTM_y1 = 4282900
+
+###########################################################################
 
 
 def faceDefine(n,rowct,colct): #find vertices for faces
@@ -65,11 +66,11 @@ def faceDefine(n,rowct,colct): #find vertices for faces
 	return  tri1, tri2
 
 #Check that DTM region and LAB region are valid
-if((LAB_x1<=LAB_x0) or (LAB_y1<=LAB_y0)):
-	print '\nERROR: Desired lab block has a negative or 0 area!'
-	print '  Check LAB_** variables'
+if(LAB_Width<=0):
+	print '\nERROR: Desired lab block has a negative or 0 width!'
+	print '  Check LAB_Width variables'
 	sys.exit(1)
-	
+
 if(LAB_minThickness <= 0):
 	print '\nERROR: Desired lab block has a negative or 0 thickness!'
 	print '  Check LAB_minThickness variable'
@@ -84,6 +85,11 @@ if((DTM_x1<=DTM_x0) or (DTM_y1<=DTM_y0)):
 	print '\nERROR: Desired geographic region has a negative or 0 area!'
 	print '  Check DTM_** variables'
 	sys.exit(1)
+
+LAB_x0 = 0
+LAB_x1 = LAB_Width
+LAB_y0 = 0
+LAB_y1 = float(LAB_Width) * (DTM_y1-DTM_y0) / (DTM_x1-DTM_x0)
 
 #Load dtmFile
 gt = gdal.Open(dtmFile, GA_ReadOnly)
@@ -104,7 +110,9 @@ pixelHeight = transform[5]
 print ('\nLoaded Geotiff, "%s"' % dtmFile)
 print ' Raster Statistics:'
 print '  Rows: ',rows,'\tCols: ',cols,'\tBands: ',bands
-print '  Upper Left Corner: (',xOrigin,',',yOrigin,')'
+print '  Upper Left  Corner: (',xOrigin,',',yOrigin,')'
+print '  Lower Right Corner: (',(xOrigin+(cols*pixelWidth)),',',\
+	(yOrigin+(rows*pixelHeight)),')'
 print '  Pixel Dimensions: (',pixelWidth,',',pixelHeight,')\n'
 
 #Check that output region lay within the raster coverage
@@ -131,6 +139,7 @@ if(DTM_y1 < (yOrigin + (rows*pixelHeight))):
 
 meshRows = 1+round((LAB_y1-LAB_y0)/float(LAB_dy))
 meshCols = 1+round((LAB_x1-LAB_x0)/float(LAB_dx))
+vct = int(meshRows*meshCols)
 #check and remake dy,dx to keep boundaries and row numbers the same
 if((LAB_y0+((meshRows-1)*LAB_dy)) != LAB_y1):
 	print ('LAB_dy has been shifted to preserve block geometry: %0.3f -> %0.3f' %
@@ -182,8 +191,8 @@ for yct,y in enumerate(DTM_ySpace):
 		yOffset = yRow - NRowLoc
 		NRow = band.ReadAsArray(0,NRowLoc,cols,1)[0]
 		SRow = band.ReadAsArray(0,SRowLoc,cols,1)[0]
-		RowData = NRow*(1-yOffset) + SRow*yOffset #weighted average of two rows
-	
+		RowData = NRow*((1-yOffset)**2) + SRow*(yOffset**2) #weighted average of two rows
+		RowData *= 1.0/(((1-yOffset)**2)+(yOffset**2))
 	# for each DTM_x, identify the Raster column left and right
 	Zmg[yct] = RowData[WColLocs]*(1-xOffsets) + RowData[EColLocs]*(xOffsets)
 
@@ -191,15 +200,15 @@ print "Interpolation Complete!"
 
 #Reduce Z values to Lab coordinates
 Zmg -= np.min(Zmg)
-Zmg *= LAB_vertExageration*(LAB_x1-LAB_x0)/(DTM_x1-DTM_x0)
+Zmg *= float(LAB_vertExageration)*(LAB_x1-LAB_x0)/(DTM_x1-DTM_x0)
 Zmg += LAB_minThickness
 
 #print out vertices to mesh file
-vertarray = np.ndarray(shape=(((meshRows*meshCols)+4),4), dtype='|S6')
+vertarray = np.ndarray(shape=((vct+4),4), dtype='|S6')
 vertarray[:,0] = 'v'
-vertarray[:(meshRows*meshCols),1] = LABXmg.reshape(-1)
-vertarray[:(meshRows*meshCols),2] = LABYmg.reshape(-1)
-vertarray[:(meshRows*meshCols),3] = Zmg.reshape(-1)
+vertarray[:vct,1] = LABXmg.reshape(-1)
+vertarray[:vct,2] = LABYmg.reshape(-1)
+vertarray[:vct,3] = Zmg.reshape(-1)
 np.savetxt(meshFile,vertarray, fmt='%s')
 
 #base vertices
@@ -213,7 +222,7 @@ with open(meshFile, 'w') as mf:
 	mf.write('#Created with gtiff2mesh_q.py, Jacob Richardson\n#\n')
 	
 	mf.write('#Vertices\n')
-	mf.write('#No. Vertices: '+str(int(meshRows*meshCols))+'\n')
+	mf.write('#No. Vertices: '+str(vct)+'\n')
 	
 	np.savetxt(mf,vertarray, fmt='%s')
 	print "Vertices saved."
@@ -247,44 +256,53 @@ with open(meshFile, 'w') as mf:
 		(face1,face2) = faceDefine(s,meshRows,meshCols) #main face function
 		mf.write(str(face1)+'\n'+str(face2)+'\n') #write to obj file
 
-	sys.stdout.write('\rFaces completed: 99%. Identifying Base and Sides...\n')
+	sys.stdout.write('\rFaces completed: 99%. Identifying Base and Sides...')
 	#Write out vertex to the outfile
 	#define and print vertices with faceDefine
 
 	#Identify and export side and bottom face. CCW
 	#Base Vertices: -1 NE, -2 SE, -3 NW, -4 SW
 	#                +4     +3     +2     +1
-	vct = meshCols*meshRows
 	mf.write('f %d %d %d %d\n' % (vct+2,vct+4,vct+3,vct+1))
 	
 	#South
 	#101 -> 1, vct+1, vct+3.
 	#mf.write('f %d %d %d %d\n' % (1,vct+1,vct+3,101))
 	mf.write('f')
-	for i in range(101):
-		mf.write(' %d' % (101-i))
+	for i in range(int(meshCols)):
+		mf.write(' %d' % (meshCols-i))
 	mf.write(' %d %d\n' % (vct+1,vct+3))
 	
 	#North
 	mf.write('f')
-	for i in range(101):
-		mf.write(' %d' % (vct-100+i))
+	for i in range(int(meshCols)):
+		mf.write(' %d' % (vct-(meshCols-1)+i))
 	mf.write(' %d %d\n' % (vct+4,vct+2))
 	
 	#West
 	mf.write('f')
-	for i in np.arange(1,vct+1,101,dtype=(int)):
+	for i in np.arange(1,vct+1,meshCols,dtype=(int)):
 		mf.write(' %d' % i)
 	mf.write(' %d %d\n' % (vct+2,vct+1))
 	
 	#East
 	mf.write('f')
-	for i in reversed(np.arange(101,vct+1,101,dtype=(int))):
+	for i in reversed(np.arange(meshCols,vct+1,meshCols,dtype=(int))):
 		mf.write(' %d' % i)
 	mf.write(' %d %d\n' % (vct+3,vct+4))
 
-print meshCols, meshRows
+sys.stdout.write('\rFaces completed: 100%.                             \n')
+print "Faces saved."
+
+
+#print meshCols, meshRows
 #print (np.arange(1,vct+1,101,dtype=(int)))
 #print (np.arange(101,vct+1,101,dtype=(int)))
-
+print ('\nCreated 3D object file, "%s"' % meshFile)
+print ' OBJ Statistics:'
+print '  Rows: ',meshRows,'\tCols: ',meshCols
+print '  X-range: Lab (',LAB_x0,',',LAB_x1,') Geog. (',DTM_x0,',',DTM_x1,')'
+print '  Y-range:     (',LAB_y0,',',LAB_y1,')       (',DTM_y0,',',DTM_y1,')'
+print '  Base (Z) Thickness: ',np.min(Zmg),('  Max thickness: %0.2f' % np.max(Zmg))
+print '  Grid Resolution: (',LAB_dx,',',LAB_dy,')\n'
 
