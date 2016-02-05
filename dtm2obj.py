@@ -264,7 +264,27 @@ with open(meshFile, 'w') as mf:
 	for i in range(101):
 		mf.write(' %d' % (101-i))
 	mf.write(' %d %d\n' % (vct+1,vct+3))
+	
+	#North
+	mf.write('f')
+	for i in range(101):
+		mf.write(' %d' % (vct-100+i))
+	mf.write(' %d %d\n' % (vct+4,vct+2))
+	
+	#West
+	mf.write('f')
+	for i in np.arange(1,vct+1,101,dtype=(int)):
+		mf.write(' %d' % i)
+	mf.write(' %d %d\n' % (vct+2,vct+1))
+	
+	#East
+	mf.write('f')
+	for i in reversed(np.arange(101,vct+1,101,dtype=(int))):
+		mf.write(' %d' % i)
+	mf.write(' %d %d\n' % (vct+3,vct+4))
 
-
+print meshCols, meshRows
+#print (np.arange(1,vct+1,101,dtype=(int)))
+#print (np.arange(101,vct+1,101,dtype=(int)))
 
 
