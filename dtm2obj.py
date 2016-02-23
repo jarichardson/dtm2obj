@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 #VARIABLES#################################################################
 
 #IN/OUT Files
-dtmFile  = 'sanraf/Ground.flt'
-meshFile = 'hebes.obj'
+dtmFile  = 'colombia/srtm_21_12.tif'
+meshFile = 'nevado-ve3.obj'
 
 #LAB = the geometry of the 3D printed block
 #DTM = the geometry of the real world elevation model
@@ -24,13 +24,13 @@ LAB_Width = 10 #x-direction width. y-direction height will be proportional
 LAB_dx = 0.02
 LAB_dy = 0.02
 LAB_minThickness = 0.5
-LAB_vertExageration = 1.0 #1 = no vert exag, 1/111120 = m w/ latlong
+LAB_vertExageration = 3.0/111120 #1 = no vert exag, 1/111120 = m w/ latlong
 
 #Desired Geographic Range (Real World)
-DTM_x0 =  488900
-DTM_x1 =  491000
-DTM_y0 = 4280500
-DTM_y1 = 4282900
+DTM_x0 = -75.4
+DTM_x1 = -75.2
+DTM_y0 = 4.8
+DTM_y1 = 5.0
 
 ###########################################################################
 
@@ -159,8 +159,11 @@ DTM_ySpace = np.linspace(DTM_y0,DTM_y1,meshRows)
 DTMXmg,DTMYmg = np.meshgrid(DTM_xSpace,DTM_ySpace) #mesh with y rows, x cols
 Zmg = np.empty(np.shape(LABXmg))
 
+#Print out real resolution
+print ("Map resolution (distance between two vertices) is %0.3f." % (DTM_xSpace[1] - DTM_xSpace[0]))
 
 #Load and interpolate raster onto sub-region mesh
+print ("\nInterpolating elevations for %d Vertices..." % vct)
 
 #in advance of y for loop, figure out column numbers used in interpolation
 # for each DTM_x, identify the Raster column left and right
@@ -219,9 +222,13 @@ vertarray[-1,2], vertarray[-3,2] = LAB_y1, LAB_y1
 vertarray[-4:,3] = '0.00'
 
 with open(meshFile, 'w') as mf:
-	mf.write('#Created with gtiff2mesh_q.py, Jacob Richardson\n#\n')
+	mf.write('#Created with dtm2obj, github.com/jarichardson, Jacob Richardson\n#\n')
+	mf.write('#DTM Range           : -R%0.3f/%0.3f/%0.3f/%0.3f\n' % (DTM_x0,DTM_x1,DTM_y0,DTM_y1))
+	mf.write('#OBJ Block Dimensions: -R%0.3f/%0.3f/%0.3f/%0.3f\n' % (LAB_x0,LAB_x1,LAB_y0,LAB_y1))
+	mf.write('#OBJ Block Z-Dims    : Min %0.3f / Max %0.3f / V. Exag %0.3f\n' % (LAB_minThickness,np.max(Zmg),LAB_vertExageration))
+	mf.write('#OBJ Block Resolution: (%0.3f, %0.3f)\n' % (LAB_dx,LAB_dy))
 	
-	mf.write('#Vertices\n')
+	mf.write('#\n#Vertices\n')
 	mf.write('#No. Vertices: '+str(vct)+'\n')
 	
 	np.savetxt(mf,vertarray, fmt='%s')
@@ -232,6 +239,7 @@ with open(meshFile, 'w') as mf:
 	print "Plotting."
 
 	plt.subplot(1, 1, 1)
+
 	plt.pcolor(LABXmg,LABYmg,Zmg, cmap='RdBu', vmin=np.min(Zmg), vmax=np.max(Zmg))
 	plt.title('pcolor')
 	# set the limits of the plot to the limits of the data
